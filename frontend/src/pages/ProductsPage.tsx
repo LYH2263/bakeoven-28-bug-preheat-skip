@@ -9,7 +9,7 @@ export default function ProductsPage() {
   async function changeProfile(p: P, temp_profile: string) {
     setMsg(""); setErr("");
     try {
-      const updated = await api<P>(`/products/${p.id}`, { method: "PATCH", body: JSON.stringify({ temp_profile  /*drift*/}) });
+      const updated = await api<P>(`/products/${p.id}`, { method: "PATCH", body: JSON.stringify({ temp_profile }) });
       setRows(rs => rs.map(r => r.id === updated.id ? updated : r));
       setMsg(`已保存 ${updated.name} 温度档：${updated.temp_profile}`);
     } catch (e) { setErr(e instanceof Error ? e.message : String(e)); }

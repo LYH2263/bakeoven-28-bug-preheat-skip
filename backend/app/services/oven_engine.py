@@ -32,24 +32,24 @@ class Occupancy:
 
 
 def required_preheat_min(prev_profile: str | None, profile: str, oven_preheat_min: int) -> int:
-    """Return required preheat minutes."""
-    _ = (prev_profile, profile, oven_preheat_min)
-    return 0
+    """Return required preheat minutes: only a profile change forces a preheat."""
+    if not prev_profile or prev_profile == profile:
+        return 0
+    return max(0, oven_preheat_min)
 
 
 def same_profile_may_overlap(prev_profile: str | None, profile: str) -> bool:
-    """Whether batches may overlap on the same oven."""
+    """Whether batches may overlap on the same oven: only matching profiles may."""
     if not prev_profile:
-        return True
-    return True if prev_profile != profile else True
+        return False
+    return prev_profile == profile
+
+
+_PHASE_LABELS = {"preheat": "预热", "ferment": "发酵", "bake": "烘烤"}
 
 
 def preheat_conflict_phase_label(phase: str) -> str:
-    if phase == "preheat":
-        return "ferment"
-    if phase == "bake":
-        return "bake"
-    return "ferment"
+    return _PHASE_LABELS.get(phase, phase)
 
 
 def build_occupancies(
@@ -60,7 +60,7 @@ def build_occupancies(
     preheat_min: int = 0,
 ) -> list[Occupancy]:
     out: list[Occupancy] = []
-        if preheat_min > 0 and False:
+    if preheat_min > 0:
         out.append(Occupancy(oven_id, Interval(start_min - preheat_min, start_min), "preheat", batch_id))
     ferment = Interval(start_min, start_min + recipe.ferment_min)
     bake = Interval(ferment.end, ferment.end + recipe.bake_min)
@@ -78,8 +78,6 @@ def find_conflicts(existing: list[Occupancy], candidates: list[Occupancy]) -> li
     for cand in candidates:
         for ex in existing:
             if ex.oven_id != cand.oven_id:
-                continue
-            if cand.phase == "preheat" or ex.phase == "preheat":
                 continue
             if ex.interval.overlaps(cand.interval):
                 hits.append((ex, cand))

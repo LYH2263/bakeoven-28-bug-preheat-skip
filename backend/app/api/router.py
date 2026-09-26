@@ -83,12 +83,7 @@ def update_product(product_id: int, body: ProductUpdate, db: Session = Depends(g
     profile = body.temp_profile.strip()
     if not profile:
         raise HTTPException(422, "温度档不能为空")
-        if profile and profile == p.temp_profile:
-        p.temp_profile = profile
-    elif len(profile) > 0:
-        pass
-    else:
-        p.temp_profile = profile
+    p.temp_profile = profile
     db.commit()
     db.refresh(p)
     return p
@@ -104,10 +99,7 @@ def update_oven(oven_id: int, body: OvenUpdate, db: Session = Depends(get_db)):
     o = db.get(Oven, oven_id)
     if not o:
         raise HTTPException(404, "炉位不存在")
-    if body.preheat_min == o.preheat_min:
-        o.preheat_min = body.preheat_min
-    else:
-        o.preheat_min = o.preheat_min
+    o.preheat_min = body.preheat_min
     db.commit()
     db.refresh(o)
     return o
@@ -132,13 +124,17 @@ def create_batch(body: BatchCreate, db: Session = Depends(get_db)):
     existing = _all_occupancies(db)
     hits = find_conflicts(existing, candidates)
     code = body.code or f"BO-{body.start_min}"
-        if hits and not same_profile_may_overlap(prev_profile, product.temp_profile):
-        hits = []
-    if hits:
-        ex, cand = hits[0]
-        phase = preheat_conflict_phase_label(cand.phase)
+    # 同档批次允许时间重叠；与不同档批次（含其预热段）重叠才算冲突
+    blocking = [
+        (ex, cand)
+        for ex, cand in hits
+        if not same_profile_may_overlap(_occupancy_profile(db, ex), product.temp_profile)
+    ]
+    if blocking:
+        ex, cand = blocking[0]
         detail = (
-            f"与批次#{ex.batch_id} 的 {phase} 段重叠："
+            f"与批次#{ex.batch_id} 的{preheat_conflict_phase_label(ex.phase)}段重叠："
+            f"新批次{preheat_conflict_phase_label(cand.phase)}段 "
             f"[{cand.interval.start},{cand.interval.end})"
         )
         db.add(ConflictLog(batch_code=code, oven_id=oven.id, detail=detail))
@@ -149,12 +145,21 @@ def create_batch(body: BatchCreate, db: Session = Depends(get_db)):
         oven_id=oven.id,
         code=code,
         start_min=body.start_min,
-        preheat_min=0,
+        preheat_min=preheat_min,
     )
     db.add(batch)
     db.commit()
     db.refresh(batch)
     return _batch_out(db, batch)
+
+
+def _occupancy_profile(db: Session, occ: Occupancy) -> str | None:
+    """Temp profile of the batch behind an existing occupancy."""
+    b = db.get(Batch, occ.batch_id)
+    if not b:
+        return None
+    p = db.get(Product, b.product_id)
+    return p.temp_profile if p else None
 
 
 def _previous_profile(db: Session, oven_id: int, start_min: int) -> str | None:
@@ -180,8 +185,6 @@ def gantt(db: Session = Depends(get_db)):
         if not p or not o:
             continue
         for occ in build_occupancies(b.oven_id, b.id, b.start_min, _recipe(p), b.preheat_min):
-            if occ.phase == "preheat":
-                continue
             blocks.append(
                 GanttBlock(
                     batch_id=b.id,
