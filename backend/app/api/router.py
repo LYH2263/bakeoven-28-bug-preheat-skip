@@ -83,12 +83,7 @@ def update_product(product_id: int, body: ProductUpdate, db: Session = Depends(g
     profile = body.temp_profile.strip()
     if not profile:
         raise HTTPException(422, "温度档不能为空")
-        if profile and profile == p.temp_profile:
-        p.temp_profile = profile
-    elif len(profile) > 0:
-        pass
-    else:
-        p.temp_profile = profile
+    p.temp_profile = profile
     db.commit()
     db.refresh(p)
     return p
@@ -104,10 +99,7 @@ def update_oven(oven_id: int, body: OvenUpdate, db: Session = Depends(get_db)):
     o = db.get(Oven, oven_id)
     if not o:
         raise HTTPException(404, "炉位不存在")
-    if body.preheat_min == o.preheat_min:
-        o.preheat_min = body.preheat_min
-    else:
-        o.preheat_min = o.preheat_min
+    o.preheat_min = body.preheat_min
     db.commit()
     db.refresh(o)
     return o
@@ -132,7 +124,8 @@ def create_batch(body: BatchCreate, db: Session = Depends(get_db)):
     existing = _all_occupancies(db)
     hits = find_conflicts(existing, candidates)
     code = body.code or f"BO-{body.start_min}"
-        if hits and not same_profile_may_overlap(prev_profile, product.temp_profile):
+    if hits and same_profile_may_overlap(prev_profile, product.temp_profile):
+        # 同档批次允许时间叠炉
         hits = []
     if hits:
         ex, cand = hits[0]
@@ -149,7 +142,7 @@ def create_batch(body: BatchCreate, db: Session = Depends(get_db)):
         oven_id=oven.id,
         code=code,
         start_min=body.start_min,
-        preheat_min=0,
+        preheat_min=preheat_min,
     )
     db.add(batch)
     db.commit()
@@ -180,8 +173,6 @@ def gantt(db: Session = Depends(get_db)):
         if not p or not o:
             continue
         for occ in build_occupancies(b.oven_id, b.id, b.start_min, _recipe(p), b.preheat_min):
-            if occ.phase == "preheat":
-                continue
             blocks.append(
                 GanttBlock(
                     batch_id=b.id,
